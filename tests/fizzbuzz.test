@@ -1,0 +1,17 @@
+for (i; 1, 100) {
+  is_mult3 = i % 3 == 0;
+  is_mult5 = i % 5 == 0;
+  if (is_mult3 && is_mult5) {
+    print("FizzBuzz");
+  } else {
+    if (is_mult3) {
+      print("Fizz");
+    } else {
+      if (is_mult5) {
+        print("Buzz");
+      } else {
+        print(i);
+      }
+    }
+  }
+}
