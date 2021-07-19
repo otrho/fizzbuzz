@@ -7,4 +7,7 @@ edition = "2018"
 
 [dependencies]
 clap = "2"
+cranelift = "0"
+cranelift-jit = "0"
+cranelift-module = "0"
 peg = "0"
