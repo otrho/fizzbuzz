@@ -1,3 +1,5 @@
+use std::iter::FromIterator;
+
 // -------------------------------------------------------------------------------------------------
 // AST node.
 
@@ -23,7 +25,7 @@ pub enum AstNode {
 #[derive(Clone, Debug, PartialEq)]
 pub enum AstValue {
     Int(i64),
-    Text(String),
+    Text(Vec<u8>),
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -124,7 +126,10 @@ peg::parser! {
                 AstValue::Int(n)
             }
             / "\"" s:$((!"\"" [_])*) "\"" _ {
-                AstValue::Text(s.to_string())
+                // String literals are null terminated here for convenience in the compiler.
+                let mut v: Vec<u8> = Vec::from_iter(s.bytes());
+                v.push(0);
+                AstValue::Text(v)
             }
 
         rule num() -> i64
