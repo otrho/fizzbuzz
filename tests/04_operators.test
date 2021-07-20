@@ -1,0 +1,5 @@
+if (15 % 3 == 0 && 15 % 5 == 0) {
+  print("Success!");
+} else {
+  print("Failure!");
+}

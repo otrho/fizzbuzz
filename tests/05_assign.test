@@ -1,0 +1,10 @@
+if (1) {
+  a = 42;
+  if (a) {
+    print("Success!");
+  } else {
+    print("Failure!");
+  }
+} else {
+  print("Very bad failure!");
+}

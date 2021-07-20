@@ -224,21 +224,17 @@ impl<'a> Compiler<'a> {
     fn compile_code(&mut self, program: &AstNode) -> Value {
         match program {
             AstNode::Literal(AstValue::Int(i)) => self.fn_builder.ins().iconst(types::I64, *i),
-
-            AstNode::Call(name, args) => {
-                // At the moment, for this demo, the only function we do call is `print` and it takes a
-                // single literal or an identifier referencing an int value.
-                assert!(name == "print");
-                assert!(args.len() == 1);
-                match &args[0] {
-                    AstNode::Literal(AstValue::Text(s)) => self.compile_print_str(s),
-                    AstNode::Literal(AstValue::Int(i)) => self.compile_print_int(*i),
-                    AstNode::Identifier(i) => self.compile_print_sym(i),
-
-                    _ => panic!("unexpected argument for print()!"),
-                }
+            AstNode::Identifier(name) => {
+                let variable = self.var_map.get(name).expect("undefined variable");
+                self.fn_builder.use_var(*variable)
             }
-
+            AstNode::Call(name, args) => self.compile_call(name, args),
+            AstNode::Assign(name, expr) => {
+                let rhs_value = self.compile_code(expr);
+                let variable = self.var_map.get(name).expect("undefined variable");
+                self.fn_builder.def_var(*variable, rhs_value);
+                rhs_value
+            }
             AstNode::If {
                 cond_expr,
                 true_expr,
@@ -246,6 +242,38 @@ impl<'a> Compiler<'a> {
             } => self.compile_if(cond_expr, true_expr, false_expr),
 
             _ => panic!("unhandled node: {:?}", program),
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+
+    fn compile_call(&mut self, name: &str, args: &[AstNode]) -> Value {
+        if name == "print" {
+            // At the moment, for this demo, the only function we do call is `print` and it takes a
+            // single literal or an identifier referencing an int value.
+            assert!(args.len() == 1);
+            match &args[0] {
+                AstNode::Literal(AstValue::Text(s)) => self.compile_print_str(s),
+                AstNode::Literal(AstValue::Int(i)) => self.compile_print_int(*i),
+                AstNode::Identifier(i) => self.compile_print_sym(i),
+
+                _ => panic!("unexpected argument for print()!"),
+            }
+        } else {
+            // Otherwise it's one of the binary operators.
+            assert!(args.len() == 2);
+            let lhs = self.compile_code(&args[0]);
+            let rhs = self.compile_code(&args[1]);
+            match name {
+                "&&" => self.fn_builder.ins().band(lhs, rhs),
+                "==" => {
+                    let cmp_val = self.fn_builder.ins().icmp(IntCC::Equal, lhs, rhs);
+                    self.fn_builder.ins().bint(types::I64, cmp_val)
+                }
+                "%" => self.fn_builder.ins().urem(lhs, rhs),
+
+                _ => panic!("Unexpected function call: '{}'", name),
+            }
         }
     }
 
@@ -334,8 +362,8 @@ impl<'a> Compiler<'a> {
     fn compile_print_int_value(&mut self, value: Value) {
         // NOTE: This is a complete hack, because I want to get something working ASAP!
         //
-        // We can only print positive integers, between 0 and 999.  To do that we print each digit in
-        // turn.
+        // We can only print positive integers, between 0 and 999.  To do that we print each digit
+        // in turn.
 
         // int putchar(int c)
         let mut sig = self.module.make_signature();
