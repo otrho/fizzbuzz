@@ -39,7 +39,7 @@ fn main() -> Result<(), std::io::Error> {
     ctx.func.signature = module.make_signature();
     let fn_main = module
         .declare_function("main", Linkage::Export, &ctx.func.signature)
-        .map_err(|err| to_other_err(err))?;
+        .map_err(to_other_err)?;
     ctx.func.name = ExternalName::user(0, fn_main.as_u32());
 
     // Build our main function.
@@ -65,9 +65,9 @@ fn main() -> Result<(), std::io::Error> {
     // Compile the program.
     let mut compiler = Compiler {
         module: &mut module,
-        fn_builder: fn_builder,
-        data_map: data_map,
-        var_map: var_map,
+        fn_builder,
+        data_map,
+        var_map,
     };
     compiler.compile_code(&program);
 
@@ -80,7 +80,7 @@ fn main() -> Result<(), std::io::Error> {
     let mut stack_map_sink = codegen::binemit::NullStackMapSink {};
     module
         .define_function(fn_main, &mut ctx, &mut trap_sink, &mut stack_map_sink)
-        .map_err(|err| to_other_err(err))?;
+        .map_err(to_other_err)?;
 
     // Link.
     module.finalize_definitions();
@@ -145,11 +145,11 @@ fn compile_data(
 fn declare_imm_string(
     module: &mut JITModule,
     data_map: &mut HashMap<Vec<u8>, DataId>,
-    str_val: &Vec<u8>,
+    str_val: &[u8],
     str_id: &mut usize,
 ) {
     let mut data_ctx = DataContext::new();
-    data_ctx.define(str_val.clone().into_boxed_slice());
+    data_ctx.define(str_val.to_owned().into_boxed_slice());
 
     let name = format!("str_{}", str_id);
     *str_id += 1;
@@ -161,7 +161,7 @@ fn declare_imm_string(
         .define_data(id, &data_ctx)
         .expect("Defining a global string immediate.");
 
-    data_map.insert(str_val.clone(), id);
+    data_map.insert(str_val.to_owned(), id);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -343,7 +343,10 @@ impl<'a> Compiler<'a> {
         // The comparison block compares the iterator to last.
         self.fn_builder.switch_to_block(cmp_block);
         let iter_var = self.fn_builder.use_var(*variable);
-        let iter_is_lt = self.fn_builder.ins().icmp_imm(IntCC::SignedLessThanOrEqual, iter_var, last);
+        let iter_is_lt =
+            self.fn_builder
+                .ins()
+                .icmp_imm(IntCC::SignedLessThanOrEqual, iter_var, last);
         self.fn_builder.ins().brz(iter_is_lt, final_block, &[]);
         self.fn_builder.ins().jump(body_block, &[]);
 
@@ -369,7 +372,7 @@ impl<'a> Compiler<'a> {
 
     // ---------------------------------------------------------------------------------------------
 
-    fn compile_print_str(&mut self, str_val: &Vec<u8>) -> Value {
+    fn compile_print_str(&mut self, str_val: &[u8]) -> Value {
         // int puts(const char* str)
         let mut sig = self.module.make_signature();
         let ptr_type = self.module.target_config().pointer_type();
@@ -390,7 +393,7 @@ impl<'a> Compiler<'a> {
             .declare_data_in_func(*data_id, &mut self.fn_builder.func);
 
         let arg = self.fn_builder.ins().symbol_value(ptr_type, local_id);
-        self.fn_builder.ins().call(callee, &vec![arg]);
+        self.fn_builder.ins().call(callee, &[arg]);
         arg
     }
 
@@ -438,7 +441,7 @@ impl<'a> Compiler<'a> {
             .ins()
             .icmp_imm(IntCC::Equal, var_0_mod_10, 0);
         let var_0_ch = self.fn_builder.ins().select(var_0_is_z, space, var_0_digit);
-        self.fn_builder.ins().call(callee, &vec![var_0_ch]);
+        self.fn_builder.ins().call(callee, &[var_0_ch]);
 
         // Second char, 10s column!
         let var_div_10 = self.fn_builder.ins().udiv_imm(value, 10);
@@ -453,15 +456,15 @@ impl<'a> Compiler<'a> {
             .fn_builder
             .ins()
             .select(var_both_are_z, space, var_1_digit);
-        self.fn_builder.ins().call(callee, &vec![var_1_ch]);
+        self.fn_builder.ins().call(callee, &[var_1_ch]);
 
         // Third char, 1s column!
         let var_2_mod_10 = self.fn_builder.ins().urem_imm(value, 10);
         let var_2_ch = self.fn_builder.ins().iadd_imm(var_2_mod_10, 48); // digit + '0'
-        self.fn_builder.ins().call(callee, &vec![var_2_ch]);
+        self.fn_builder.ins().call(callee, &[var_2_ch]);
 
         // Newline.
-        self.fn_builder.ins().call(callee, &vec![nl]);
+        self.fn_builder.ins().call(callee, &[nl]);
     }
 }
 

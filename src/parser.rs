@@ -1,5 +1,3 @@
-use std::iter::FromIterator;
-
 // -------------------------------------------------------------------------------------------------
 // AST node.
 
@@ -31,8 +29,7 @@ pub enum AstValue {
 // -------------------------------------------------------------------------------------------------
 
 pub fn parse_string(input: &str) -> Result<AstNode, std::io::Error> {
-    Ok(fbl_parser::parse(input)
-        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?)
+    fbl_parser::parse(input).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -128,7 +125,7 @@ peg::parser! {
             }
             / "\"" s:$((!"\"" [_])*) "\"" _ {
                 // String literals are null terminated here for convenience in the compiler.
-                let mut v: Vec<u8> = Vec::from_iter(s.bytes());
+                let mut v: Vec<u8> = s.bytes().collect();
                 v.push(0);
                 AstValue::Text(v)
             }
