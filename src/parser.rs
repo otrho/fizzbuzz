@@ -55,6 +55,7 @@ peg::parser! {
                 ss
             }
 
+        // For-loops must have immediate first and last range values.
         rule for_loop_stmt() -> AstNode
             = "for" _ "(" _ id:ident() ";" _ fst:num() "," _ lst:num() ")" _ "{" _
                   b:stmt_list()

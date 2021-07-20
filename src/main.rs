@@ -84,7 +84,7 @@ fn main() -> Result<(), std::io::Error> {
 
     // Link.
     module.finalize_definitions();
-    //println!("{}", ctx.func);
+    println!("{}", ctx.func);
 
     // Call the compiled binary (by casting it to fn()).
     let code = module.get_finalized_function(fn_main);
@@ -186,7 +186,8 @@ fn declare_all_variables(
                 declare_all_variables(fn_builder, var_map, var_id, stmt);
             }
         }
-        AstNode::For { body, .. } => {
+        AstNode::For { ident, body, .. } => {
+            declare_variable(fn_builder, var_map, ident, var_id);
             for stmt in body {
                 declare_all_variables(fn_builder, var_map, var_id, stmt);
             }
@@ -207,7 +208,7 @@ fn declare_variable(
         *var_id += 1;
 
         var_map.insert(name.to_string(), var);
-        fn_builder.declare_var(var, types::I64);
+        fn_builder.declare_var(var, types::I32);
     }
 }
 
@@ -223,7 +224,7 @@ struct Compiler<'a> {
 impl<'a> Compiler<'a> {
     fn compile_code(&mut self, program: &AstNode) -> Value {
         match program {
-            AstNode::Literal(AstValue::Int(i)) => self.fn_builder.ins().iconst(types::I64, *i),
+            AstNode::Literal(AstValue::Int(i)) => self.fn_builder.ins().iconst(types::I32, *i),
             AstNode::Identifier(name) => {
                 let variable = self.var_map.get(name).expect("undefined variable");
                 self.fn_builder.use_var(*variable)
@@ -240,6 +241,12 @@ impl<'a> Compiler<'a> {
                 true_expr,
                 false_expr,
             } => self.compile_if(cond_expr, true_expr, false_expr),
+            AstNode::For {
+                ident,
+                first,
+                last,
+                body,
+            } => self.compile_for(ident, *first, *last, body),
 
             _ => panic!("unhandled node: {:?}", program),
         }
@@ -268,7 +275,7 @@ impl<'a> Compiler<'a> {
                 "&&" => self.fn_builder.ins().band(lhs, rhs),
                 "==" => {
                     let cmp_val = self.fn_builder.ins().icmp(IntCC::Equal, lhs, rhs);
-                    self.fn_builder.ins().bint(types::I64, cmp_val)
+                    self.fn_builder.ins().bint(types::I32, cmp_val)
                 }
                 "%" => self.fn_builder.ins().urem(lhs, rhs),
 
@@ -316,7 +323,48 @@ impl<'a> Compiler<'a> {
         self.fn_builder.seal_block(final_block);
 
         // Need to return a dummy null value.
-        self.fn_builder.ins().iconst(types::I64, 0)
+        self.fn_builder.ins().iconst(types::I32, 0)
+    }
+
+    // ---------------------------------------------------------------------------------------------
+
+    fn compile_for(&mut self, name: &str, first: i64, last: i64, body: &[AstNode]) -> Value {
+        // Initialise the iterator.
+        let variable = self.var_map.get(name).expect("undefined for-loop variable");
+        let first_val = self.fn_builder.ins().iconst(types::I32, first);
+        self.fn_builder.def_var(*variable, first_val);
+
+        let cmp_block = self.fn_builder.create_block();
+        let body_block = self.fn_builder.create_block();
+        let final_block = self.fn_builder.create_block();
+
+        self.fn_builder.ins().jump(cmp_block, &[]);
+
+        // The comparison block compares the iterator to last.
+        self.fn_builder.switch_to_block(cmp_block);
+        let iter_var = self.fn_builder.use_var(*variable);
+        let iter_is_lt = self.fn_builder.ins().icmp_imm(IntCC::SignedLessThanOrEqual, iter_var, last);
+        self.fn_builder.ins().brz(iter_is_lt, final_block, &[]);
+        self.fn_builder.ins().jump(body_block, &[]);
+
+        self.fn_builder.switch_to_block(body_block);
+        for expr in body {
+            self.compile_code(expr);
+        }
+
+        let inc_iter_var = self.fn_builder.ins().iadd_imm(iter_var, 1);
+        let variable = self.var_map.get(name).expect("undefined for-loop variable");
+        self.fn_builder.def_var(*variable, inc_iter_var);
+        self.fn_builder.ins().jump(cmp_block, &[]);
+
+        // Switch to final block for rest of program.
+        self.fn_builder.switch_to_block(final_block);
+        self.fn_builder.seal_block(cmp_block);
+        self.fn_builder.seal_block(body_block);
+        self.fn_builder.seal_block(final_block);
+
+        // Need to return a dummy null value.
+        self.fn_builder.ins().iconst(types::I32, 0)
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -379,6 +427,7 @@ impl<'a> Compiler<'a> {
             .declare_func_in_func(libc_putchar, &mut self.fn_builder.func);
 
         let space = self.fn_builder.ins().iconst(types::I32, 32);
+        let nl = self.fn_builder.ins().iconst(types::I32, 10);
 
         // First char, 100s column!
         let var_div_100 = self.fn_builder.ins().udiv_imm(value, 100);
@@ -410,6 +459,9 @@ impl<'a> Compiler<'a> {
         let var_2_mod_10 = self.fn_builder.ins().urem_imm(value, 10);
         let var_2_ch = self.fn_builder.ins().iadd_imm(var_2_mod_10, 48); // digit + '0'
         self.fn_builder.ins().call(callee, &vec![var_2_ch]);
+
+        // Newline.
+        self.fn_builder.ins().call(callee, &vec![nl]);
     }
 }
 
