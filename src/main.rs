@@ -84,7 +84,7 @@ fn main() -> Result<(), std::io::Error> {
 
     // Link.
     module.finalize_definitions();
-    println!("{}", ctx.func);
+    //println!("{}", ctx.func);
 
     // Call the compiled binary (by casting it to fn()).
     let code = module.get_finalized_function(fn_main);
