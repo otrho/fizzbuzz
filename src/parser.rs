@@ -37,7 +37,7 @@ pub fn parse_string(input: &str) -> Result<AstNode, std::io::Error> {
 peg::parser! {
     grammar fbl_parser() for str {
         pub rule parse() -> AstNode
-            = s:stmt() eoi() {
+            = _ s:stmt() eoi() {
                 s
             }
 
@@ -64,6 +64,7 @@ peg::parser! {
                     body: b,
                 }
             }
+            / expected!("for loop")
 
         rule if_stmt() -> AstNode
             = "if" _  "(" _ ce:expr() ")" _ "{" _
@@ -77,11 +78,13 @@ peg::parser! {
                     false_expr: fs,
                 }
             }
+            / expected!("if statement")
 
         rule assign_stmt() -> AstNode
             = i:ident() "=" _ e:expr() ";" _ {
                 AstNode::Assign(i, Box::new(e))
             }
+            / expected!("assignment")
 
         rule expr() -> AstNode
             = precedence! {
@@ -93,6 +96,7 @@ peg::parser! {
                 --
                 t:term() { t }
             }
+            / expected!("expression")
 
         rule term() -> AstNode
             = call_expr()
@@ -104,6 +108,7 @@ peg::parser! {
             = i:ident() "(" _ args:(expr() ** ("," _)) ")" _ {
                 AstNode::Call(i, args)
             }
+            / expected!("call")
 
         rule ident() -> String
             = !keyword() id:$(id_char0() id_char()*) _ {
