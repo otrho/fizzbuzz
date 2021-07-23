@@ -292,7 +292,19 @@ impl<'a> Compiler<'a> {
             let lhs = self.compile_code(&args[0]);
             let rhs = self.compile_code(&args[1]);
             match name {
-                "&&" => self.fn_builder.ins().band(lhs, rhs),
+                "&&" => {
+                    // Cranelift doesn't seem to have a logical and operator, nor a way to easily
+                    // convert a wider value to a bool (b1).  (I hoped breduce did this, bit it
+                    // seems no.)  Until we discover a better way, we can use icmp to convert to
+                    // bool.
+                    let lhs_bool = self.fn_builder.ins().icmp_imm(IntCC::NotEqual, lhs, 0);
+                    let rhs_bool = self.fn_builder.ins().icmp_imm(IntCC::NotEqual, rhs, 0);
+                    let res_bool = self.fn_builder.ins().band(lhs_bool, rhs_bool);
+
+                    // Since we don't have a boolean type (or any type safety) we need to convert
+                    // this result back to an i32.
+                    self.fn_builder.ins().bint(types::I32, res_bool)
+                }
                 "==" => {
                     let cmp_val = self.fn_builder.ins().icmp(IntCC::Equal, lhs, rhs);
                     self.fn_builder.ins().bint(types::I32, cmp_val)
