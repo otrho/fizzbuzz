@@ -173,6 +173,7 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "peg",
+ "test_bin",
 ]
 
 [[package]]
@@ -299,6 +300,12 @@ name = "target-lexicon"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0652da4c4121005e9ed22b79f6c5f2d9e2752906b53a33e9490489ba421a6fb"
+
+[[package]]
+name = "test_bin"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1937bab04b0bd0f2c19628d3408fb6dd78faf5aa60f4bdb03212507a9b7314ba"
 
 [[package]]
 name = "textwrap"
