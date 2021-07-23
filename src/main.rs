@@ -12,18 +12,38 @@ use parser::{AstNode, AstValue};
 // -------------------------------------------------------------------------------------------------
 
 fn main() -> Result<(), std::io::Error> {
-    let matches = clap::App::new("fbl")
+    let matches = clap::App::new("fizzbuzz")
         .version(std::env!("CARGO_PKG_VERSION"))
         .author(std::env!("CARGO_PKG_AUTHORS"))
         .about("FizzBuzz Language :)")
-        .args(&[clap::Arg::with_name("FILE").required(true)])
+        .args(&[
+            clap::Arg::with_name("expression")
+                .short("e")
+                .long("expression")
+                .takes_value(true)
+                .help("Evaluate expression string."),
+            clap::Arg::with_name("FILE").help("Source file to read and compile."),
+        ])
         .get_matches();
 
-    // Read the source into a string.
-    let src_path = matches.value_of("FILE").unwrap_or_default();
-    let mut src_file = std::fs::File::open(src_path)?;
-    let mut input_string = String::new();
-    src_file.read_to_string(&mut input_string)?;
+    let input_string = match (matches.value_of("expression"), matches.value_of("FILE")) {
+        (None, None) => Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Must provide either -e expression or a FILE to read.",
+        )),
+        (Some(e), None) => Ok(e.to_string()),
+        (None, Some(src_path)) => {
+            // Read the source into a string.
+            let mut src_file = std::fs::File::open(src_path)?;
+            let mut input_string = String::new();
+            src_file.read_to_string(&mut input_string)?;
+            Ok(input_string)
+        }
+        (Some(_), Some(_)) => Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Must provide one of -e expression or a FILE to read, not both.",
+        )),
+    }?;
 
     // Parse into an AST.
     let program = parser::parse_string(&input_string)?;
