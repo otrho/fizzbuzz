@@ -1,3 +1,5 @@
+![CI](https://github.com/otrho/fizzbuzz/actions/workflows/rust.yml/badge.svg)
+
 # What?
 
 A silly demo to run FizzBuzz.  It invents a dumb, imperative, untyped, basic looking language and
