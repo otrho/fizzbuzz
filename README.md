@@ -25,7 +25,7 @@ There are a bunch of tests in the `tests/` directory, most importantly the `fizz
 
 From the root directory:
 ```
-cargo run -- ./tests/fizzbuzz.test
+cargo run -- fizzbuzz.script
 
   1
   2
