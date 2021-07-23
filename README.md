@@ -14,10 +14,10 @@ needed for FizzBuzz.
 
 # Why?
 
-I didn't have anything in particular to show you guys for the technical interview, especially
-compiler-y and Rust-y and I've wanted to play around with Cranelift for a while now.
+I've read all about JIT compilers in theory, but never implemented an interpreter or compiler using
+one.
 
-So hopefully this is interesting enough to talk about.
+This is also a talking piece for whenever I'm looking for Rust/compiler work.
 
 # How?
 
