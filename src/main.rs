@@ -246,7 +246,7 @@ impl<'a> Compiler<'a> {
         match program {
             AstNode::Literal(AstValue::Int(i)) => self.fn_builder.ins().iconst(types::I32, *i),
             AstNode::Identifier(name) => {
-                let variable = self.var_map.get(name).expect("undefined variable");
+                let variable = self.var_map.get(name).expect(&format!("Undefined variable: {}", name));
                 self.fn_builder.use_var(*variable)
             }
             AstNode::Call(name, args) => self.compile_call(name, args),
