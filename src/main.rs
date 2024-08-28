@@ -3,7 +3,7 @@ use std::io::Read;
 
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{DataContext, DataId, Linkage, Module};
+use cranelift_module::{DataDescription, DataId, Linkage, Module};
 
 mod parser;
 
@@ -47,20 +47,28 @@ fn main() -> Result<(), std::io::Error> {
 
     // Parse into an AST.
     let program = parser::parse_string(&input_string)?;
-    //println!("{:?}", program);
-    //return Ok(());
 
     // Create a JIT module.
-    let builder = JITBuilder::new(cranelift_module::default_libcall_names());
+    let mut jit_flags = settings::builder();
+    jit_flags.set("use_colocated_libcalls", "false").unwrap();
+    jit_flags.set("is_pic", "false").unwrap();
+    let isa_builder = cranelift_native::builder().unwrap_or_else(|why| {
+        println!("host machine is not supported: {why}");
+        panic!()
+    });
+    let builder = JITBuilder::with_isa(
+        isa_builder.finish(settings::Flags::new(jit_flags)).unwrap(),
+        cranelift_module::default_libcall_names(),
+    );
     let mut module = JITModule::new(builder);
 
-    // We have an implicit main() which takes and returns nothing.
+    // We have an implicit main() which takes and returns nothing.  No need to set params or
+    // returns.
     let mut ctx = module.make_context();
     ctx.func.signature = module.make_signature();
     let fn_main = module
         .declare_function("main", Linkage::Export, &ctx.func.signature)
         .map_err(to_other_err)?;
-    ctx.func.name = ExternalName::user(0, fn_main.as_u32());
 
     // Build our main function.
     let mut fn_ctx = FunctionBuilderContext::new();
@@ -70,9 +78,9 @@ fn main() -> Result<(), std::io::Error> {
     let mut data_map = HashMap::<Vec<u8>, DataId>::new();
     let mut str_id = 0_usize;
     compile_data(&mut module, &mut data_map, &mut str_id, &program);
-    module.finalize_definitions();
+    module.finalize_definitions().map_err(to_other_err)?;
 
-    // Create the entry block.
+    // Create the entry block.  Entry has no predecessors so we can seal it immediately.
     let block = fn_builder.create_block();
     fn_builder.switch_to_block(block);
     fn_builder.seal_block(block);
@@ -93,23 +101,19 @@ fn main() -> Result<(), std::io::Error> {
 
     // Finalize the main function.
     compiler.fn_builder.ins().return_(&[]);
-    compiler.fn_builder.finalize();
     compiler.fn_builder.seal_all_blocks();
     compiler.fn_builder.finalize();
-    let mut trap_sink = codegen::binemit::NullTrapSink {};
-    let mut stack_map_sink = codegen::binemit::NullStackMapSink {};
     module
-        .define_function(fn_main, &mut ctx, &mut trap_sink, &mut stack_map_sink)
+        .define_function(fn_main, &mut ctx)
         .map_err(to_other_err)?;
 
     // Link.
-    module.finalize_definitions();
-    //println!("{}", ctx.func);
+    module.finalize_definitions().map_err(to_other_err)?;
 
     // Call the compiled binary (by casting it to fn()).
     let code = module.get_finalized_function(fn_main);
-    let ptr = unsafe { std::mem::transmute::<_, fn()>(code) };
-    ptr();
+    let main_fn_ptr = unsafe { std::mem::transmute::<_, fn()>(code) };
+    main_fn_ptr();
 
     Ok(())
 }
@@ -168,8 +172,8 @@ fn declare_imm_string(
     str_val: &[u8],
     str_id: &mut usize,
 ) {
-    let mut data_ctx = DataContext::new();
-    data_ctx.define(str_val.to_owned().into_boxed_slice());
+    let mut data_descr = DataDescription::new();
+    data_descr.define(str_val.to_owned().into_boxed_slice());
 
     let name = format!("str_{}", str_id);
     *str_id += 1;
@@ -178,7 +182,7 @@ fn declare_imm_string(
         .declare_data(&name, Linkage::Export, false, false)
         .expect("Declaring a global string immediate.");
     module
-        .define_data(id, &data_ctx)
+        .define_data(id, &data_descr)
         .expect("Defining a global string immediate.");
 
     data_map.insert(str_val.to_owned(), id);
@@ -246,7 +250,10 @@ impl<'a> Compiler<'a> {
         match program {
             AstNode::Literal(AstValue::Int(i)) => self.fn_builder.ins().iconst(types::I32, *i),
             AstNode::Identifier(name) => {
-                let variable = self.var_map.get(name).expect(&format!("Undefined variable: {}", name));
+                let variable = self
+                    .var_map
+                    .get(name)
+                    .expect(&format!("Undefined variable: {}", name));
                 self.fn_builder.use_var(*variable)
             }
             AstNode::Call(name, args) => self.compile_call(name, args),
@@ -294,7 +301,7 @@ impl<'a> Compiler<'a> {
             match name {
                 "&&" => {
                     // Cranelift doesn't seem to have a logical and operator, nor a way to easily
-                    // convert a wider value to a bool (b1).  (I hoped breduce did this, bit it
+                    // convert a wider value to a bool (b1).  (I hoped breduce did this, but it
                     // seems no.)  Until we discover a better way, we can use icmp to convert to
                     // bool.
                     let lhs_bool = self.fn_builder.ins().icmp_imm(IntCC::NotEqual, lhs, 0);
@@ -303,11 +310,11 @@ impl<'a> Compiler<'a> {
 
                     // Since we don't have a boolean type (or any type safety) we need to convert
                     // this result back to an i32.
-                    self.fn_builder.ins().bint(types::I32, res_bool)
+                    self.fn_builder.ins().uextend(types::I32, res_bool)
                 }
                 "==" => {
                     let cmp_val = self.fn_builder.ins().icmp(IntCC::Equal, lhs, rhs);
-                    self.fn_builder.ins().bint(types::I32, cmp_val)
+                    self.fn_builder.ins().uextend(types::I32, cmp_val)
                 }
                 "%" => self.fn_builder.ins().urem(lhs, rhs),
 
@@ -331,8 +338,9 @@ impl<'a> Compiler<'a> {
         let final_block = self.fn_builder.create_block();
 
         // Jump to block depending on condition.
-        self.fn_builder.ins().brz(cond_val, false_block, &[]);
-        self.fn_builder.ins().jump(true_block, &[]);
+        self.fn_builder
+            .ins()
+            .brif(cond_val, true_block, &[], false_block, &[]);
 
         // Populate the true block, jump to final block at end.
         self.fn_builder.switch_to_block(true_block);
@@ -379,8 +387,9 @@ impl<'a> Compiler<'a> {
             self.fn_builder
                 .ins()
                 .icmp_imm(IntCC::SignedLessThanOrEqual, iter_var, last);
-        self.fn_builder.ins().brz(iter_is_lt, final_block, &[]);
-        self.fn_builder.ins().jump(body_block, &[]);
+        self.fn_builder
+            .ins()
+            .brif(iter_is_lt, body_block, &[], final_block, &[]);
 
         self.fn_builder.switch_to_block(body_block);
         for expr in body {
